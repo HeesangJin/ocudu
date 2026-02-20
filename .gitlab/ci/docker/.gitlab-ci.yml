@@ -1,0 +1,259 @@
+#
+# Copyright 2021-2026 Software Radio Systems Limited
+#
+# By using this file, you agree to the terms and conditions set
+# forth in the LICENSE file which can be found at the top level of
+# the distribution.
+#
+
+include:
+  - local: .gitlab/ci-shared/docker.yml
+  - local: .gitlab/ci-shared/version_check.yml
+
+################################################################################
+# Stages
+################################################################################
+stages:
+  - ci
+  - static
+  - compose
+  - publish
+
+.gnb-docker:
+  - changes: &container_changes
+      paths:
+        - docker/scripts/**/*
+        - docker/Dockerfile
+
+################################################################################
+# Static
+################################################################################
+no docker changes:
+  stage: static
+  image: alpine:3.16.0
+  variables:
+    GIT_STRATEGY: none
+  rules:
+    - if: $ON_MR
+      changes:
+        - docker/docker-compose.yml
+        - docker/docker-compose.*.yml
+        - docker/.env
+        - docker/Dockerfile
+        - docker/open5gs/**/*
+        - docker/telegraf/**/*
+        - docker/grafana/**/*
+        - docker/scripts/**/*
+      when: never
+    - if: $ON_MR
+  script:
+    - echo "Nothing to check"
+
+grafana version changed:
+  extends: .version increased
+  stage: static
+  rules:
+    - if: $SKIP_OCUDU_BUILDING_CONTAINERS_CI
+      when: never
+    - if: $ON_MR_FORK
+      when: never
+    - if: $ON_MR
+      changes:
+        - docker/grafana/**/*
+  variables:
+    FILE_PATH: docker/grafana/version.yml
+    VARIABLE_NAME: OCUDU_GF_VERSION
+
+telegraf version changed:
+  extends: .version increased
+  stage: static
+  rules:
+    - if: $SKIP_OCUDU_BUILDING_CONTAINERS_CI
+      when: never
+    - if: $ON_MR_FORK
+      when: never
+    - if: $ON_MR
+      changes:
+        - docker/telegraf/**/*
+  variables:
+    FILE_PATH: docker/telegraf/version.yml
+    VARIABLE_NAME: OCUDU_TELEGRAF_VERSION
+
+################################################################################
+# Docker Compose
+################################################################################
+.docker compose:
+  stage: compose
+  image: docker:24.0.7-dind
+  tags: [saas-linux-medium-amd64]
+  timeout: 2h
+  retry: 2
+  variables:
+    KUBERNETES_CPU_REQUEST: ${SRS_CPU_LIMIT}
+    KUBERNETES_CPU_LIMIT: ${SRS_CPU_LIMIT}
+    KUBERNETES_MEMORY_REQUEST: ${SRS_MEMORY_LIMIT}
+    KUBERNETES_MEMORY_LIMIT: ${SRS_MEMORY_LIMIT}
+  before_script: &docker_setup
+    - |
+      export DOCKER_HOST=unix:///var/run/docker.sock
+      export DOCKER_TLS_CERTDIR=""
+      dockerd-entrypoint.sh --host=${DOCKER_HOST} --tls=false 2>&1 &
+    - |
+      i=0
+      while ! docker info >/dev/null 2>&1; do
+        i=$((i+1))
+        if [ "$i" -ge 60 ]; then
+          echo "ERROR: dockerd not ready after 60s"
+          exit 1
+        fi
+        sleep 1
+      done
+    - |
+      CPU_JOBS="$(/usr/local/bin/get_available_cores.sh 2>/dev/null || ${CI_PROJECT_DIR}/.gitlab/ci/builders/get_available_cores.sh)"
+      if [ -z "${CPU_JOBS}" ] || [ "${CPU_JOBS}" -lt 1 ]; then
+        CPU_JOBS=1
+      fi
+      export CPU_JOBS
+
+gnb docker compose:
+  extends: .docker compose
+  variables:
+    DOCKER_UHD_VERSION: "4.7.0.0"
+    DOCKER_DPDK_VERSION: "24.11.2"
+  rules:
+    - if: $ON_MR
+      changes:
+        <<: *container_changes
+    - if: $ON_MR
+      changes:
+        paths:
+          - docker/docker-compose.yml
+    - if: $CI_PIPELINE_SCHEDULE_DESCRIPTION =~ /Nightly/
+      interruptible: false
+  before_script:
+    - *docker_setup
+  script:
+    - docker compose -f docker/docker-compose.yml build --build-arg NUM_JOBS=${CPU_JOBS} --build-arg UHD_VERSION=${DOCKER_UHD_VERSION} --build-arg DPDK_VERSION=${DOCKER_DPDK_VERSION} gnb
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb which ocu"
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb which ocucp"
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb which ocuup"
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb which odu"
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb which odu_split_8"
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb which odu_split_7_2"
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb which odu_low"
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb which gnb"
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb which gnb_split_8"
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb which gnb_split_7_2"
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb which ru_emulator"
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb gnb cu_cp amf --no_core=true ru_sdr --device_driver uhd | grep 'Failed to open device with address'"
+    - sh -c "docker compose -f docker/docker-compose.yml run --no-deps gnb gnb cu_cp amf --no_core=true hal --eal_args='--help'"
+
+5gc docker compose:
+  extends: .docker compose
+  rules:
+    - if: $ON_MR
+      changes:
+        paths:
+          - docker/open5gs/**/*
+          - docker/docker-compose.yml
+    - if: $CI_PIPELINE_SCHEDULE_DESCRIPTION =~ /Weekly/
+      interruptible: false
+  script:
+    - docker compose -f docker/docker-compose.yml build --build-arg NUM_JOBS=${CPU_JOBS} 5gc
+    - docker compose -f docker/docker-compose.yml run 5gc 5gc -v
+
+grafana docker compose:
+  extends: .docker compose
+  rules:
+    - if: $ON_MR
+      changes:
+        paths:
+          - docker/.env
+          - docker/grafana/**/*
+          - docker/docker-compose.ui.yml
+    - if: $CI_PIPELINE_SCHEDULE_DESCRIPTION =~ /Weekly/
+      interruptible: false
+  script:
+    - docker compose -f docker/docker-compose.ui.yml run --no-deps grafana --version
+
+influxdb and telegraf docker compose:
+  extends: .docker compose
+  rules:
+    - if: $ON_MR
+      changes:
+        paths:
+          - docker/.env
+          - docker/telegraf/**/*
+          - docker/docker-compose.ui.yml
+    - if: $CI_PIPELINE_SCHEDULE_DESCRIPTION =~ /Weekly/
+      interruptible: false
+  script:
+    - docker compose -f docker/docker-compose.ui.yml up influxdb telegraf -d --wait
+    - |
+      echo '{"timestamp": 1750248119.559, "fake_metric": {"field": 0}}' | nc -u -w1 localhost 55555
+    - |
+      if docker compose -f docker/docker-compose.ui.yml logs telegraf | grep -E 'E!|error'; then
+        docker compose -f docker/docker-compose.ui.yml down --volumes
+        exit 1
+      fi
+    - docker compose -f docker/docker-compose.ui.yml logs
+    - docker compose -f docker/docker-compose.ui.yml down --volumes
+
+################################################################################
+# Publish
+################################################################################
+telegraf image:
+  extends: .docker-builder
+  stage: publish
+  rules:
+    - if: $SKIP_OCUDU_BUILDING_CONTAINERS_CI
+      when: never
+    - if: $ON_MR_FORK
+      when: never
+    - if: $ON_MR
+      changes:
+        paths:
+          - docker/telegraf/**/*
+  variables:
+    NAME: telegraf
+    CONTEXT: ${CI_PROJECT_DIR}/docker/telegraf
+    MODE: publish
+  before_script:
+    - |
+      export VERSION=$(cat ${CONTEXT}/version.yml | grep OCUDU_TELEGRAF_VERSION | cut -d'"' -f2)
+
+telegraf image latest:
+  extends: telegraf image
+  variables:
+    OVERWRITE: "true"
+  before_script:
+    - |
+      export VERSION=latest
+
+grafana image:
+  extends: .docker-builder
+  stage: publish
+  rules:
+    - if: $SKIP_OCUDU_BUILDING_CONTAINERS_CI
+      when: never
+    - if: $ON_MR_FORK
+      when: never
+    - if: $ON_MR
+      changes:
+        paths:
+          - docker/grafana/**/*
+  variables:
+    NAME: grafana
+    CONTEXT: ${CI_PROJECT_DIR}/docker/grafana
+    MODE: publish
+  before_script:
+    - |
+      export VERSION=$(cat docker/grafana/version.yml | grep OCUDU_GF_VERSION | cut -d'"' -f2)
+
+grafana image latest:
+  extends: grafana image
+  variables:
+    OVERWRITE: "true"
+  before_script:
+    - |
+      export VERSION=latest

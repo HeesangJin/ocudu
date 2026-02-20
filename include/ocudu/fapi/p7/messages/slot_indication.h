@@ -1,0 +1,28 @@
+/*
+ *
+ * Copyright 2021-2026 Software Radio Systems Limited
+ *
+ * By using this file, you agree to the terms and conditions set
+ * forth in the LICENSE file which can be found at the top level of
+ * the distribution.
+ *
+ */
+
+#pragma once
+
+#include "ocudu/fapi/common/base_message.h"
+#include "ocudu/ran/slot_point_extended.h"
+#include <chrono>
+
+namespace ocudu {
+namespace fapi {
+
+/// Slot indication message.
+struct slot_indication : public base_message {
+  slot_point_extended slot;
+  /// Vendor specific properties.
+  std::chrono::time_point<std::chrono::system_clock> time_point;
+};
+
+} // namespace fapi
+} // namespace ocudu

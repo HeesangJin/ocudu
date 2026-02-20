@@ -1,0 +1,20 @@
+#
+# Copyright 2021-2026 Software Radio Systems Limited
+#
+# By using this file, you agree to the terms and conditions set
+# forth in the LICENSE file which can be found at the top level of
+# the distribution.
+#
+
+# Example configuration file for AMF.
+
+cu_cp:
+  amf:
+    addrs: 127.0.1.100
+    bind_addrs: 127.0.10.2
+    supported_tracking_areas: # List of tracking areas supported by this AMF. Note that the first PLMN is used for the Global RAN Node ID
+      - tac: 7
+        plmn_list:
+          - plmn: "00101"
+            tai_slice_support_list:
+              - sst: 1

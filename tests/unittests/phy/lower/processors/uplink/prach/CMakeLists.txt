@@ -1,0 +1,11 @@
+#
+# Copyright 2021-2026 Software Radio Systems Limited
+#
+# By using this file, you agree to the terms and conditions set
+# forth in the LICENSE file which can be found at the top level of
+# the distribution.
+#
+
+add_executable(prach_processor_test prach_processor_test.cpp)
+target_link_libraries(prach_processor_test ocudu_lower_phy_prach_processor ocudulog gtest gtest_main)
+add_test(prach_processor_test prach_processor_test)

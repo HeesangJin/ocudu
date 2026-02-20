@@ -1,0 +1,76 @@
+/*
+ *
+ * Copyright 2021-2026 Software Radio Systems Limited
+ *
+ * By using this file, you agree to the terms and conditions set
+ * forth in the LICENSE file which can be found at the top level of
+ * the distribution.
+ *
+ */
+
+#pragma once
+
+#include "../ngap_repository.h"
+#include "amf_connection_manager.h"
+#include "cu_cp_ue_admission_controller.h"
+#include "cu_up_connection_manager.h"
+#include "du_connection_manager.h"
+#include "node_connection_notifier.h"
+#include "ocudu/cu_cp/common_task_scheduler.h"
+#include "ocudu/cu_cp/cu_cp_configuration.h"
+
+namespace ocudu {
+namespace ocucp {
+
+class cu_up_processor_repository;
+class ue_manager;
+
+/// \brief Entity responsible for managing the CU-CP connections to remote nodes and determining whether the CU-CP
+/// is in a state to accept new connections.
+///
+/// In particular, this class is responsible for:
+/// - triggering an AMF connection and tracking the status of the connection;
+/// - determining whether a new DU setup request should be accepted based on the status of other remote node
+/// connections;
+/// - determining whether new UEs should be accepted depending on the status of the CU-CP remote connections.
+class cu_cp_controller : public cu_cp_ue_admission_controller
+{
+public:
+  cu_cp_controller(const cu_cp_configuration&      config_,
+                   cu_cp_amf_reconnection_handler& cu_cp_notifier,
+                   common_task_scheduler&          common_task_sched_,
+                   ngap_repository&                ngaps_,
+                   cu_up_processor_repository&     cu_ups_,
+                   du_processor_repository&        dus_,
+                   task_executor&                  ctrl_exec);
+
+  void stop();
+
+  amf_connection_manager& amf_connection_handler() { return amf_mng; }
+
+  bool handle_du_setup_request(du_index_t du_idx, const std::set<plmn_identity>& plmn_ids);
+
+  /// \brief Determines whether the CU-CP should accept new UE connections.
+  bool request_ue_setup() const override;
+
+  /// \brief Determines whether the CU-CP should accept a new UE connection based on its PLMN.
+  bool is_supported_plmn(const plmn_identity& plmn) const;
+
+  cu_cp_f1c_handler& get_f1c_handler() { return du_mng; }
+  cu_cp_e1_handler&  get_e1_handler() { return cu_up_mng; }
+
+private:
+  const cu_cp_configuration& cfg;
+  task_executor&             ctrl_exec;
+  ocudulog::basic_logger&    logger;
+
+  amf_connection_manager   amf_mng;
+  du_connection_manager    du_mng;
+  cu_up_connection_manager cu_up_mng;
+
+  std::mutex mutex;
+  bool       running = true;
+};
+
+} // namespace ocucp
+} // namespace ocudu

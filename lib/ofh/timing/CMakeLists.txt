@@ -1,0 +1,15 @@
+#
+# Copyright 2021-2026 Software Radio Systems Limited
+#
+# By using this file, you agree to the terms and conditions set
+# forth in the LICENSE file which can be found at the top level of
+# the distribution.
+#
+
+set(SOURCES
+        ofh_timing_manager_impl.cpp
+        ofh_timing_metrics_collector_impl.cpp
+        realtime_timing_worker.cpp)
+
+add_library(ocudu_ofh_timing STATIC ${SOURCES})
+target_link_libraries(ocudu_ofh_timing ocudulog ocudu_instrumentation)

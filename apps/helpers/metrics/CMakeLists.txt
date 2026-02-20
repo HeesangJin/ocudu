@@ -1,0 +1,17 @@
+#
+# Copyright 2021-2026 Software Radio Systems Limited
+#
+# By using this file, you agree to the terms and conditions set
+# forth in the LICENSE file which can be found at the top level of
+# the distribution.
+#
+
+add_subdirectory(json_generators)
+
+set(SOURCES
+        metrics_config_cli11_schema.cpp
+        metrics_config_yaml_writer.cpp
+        metrics_helpers.cpp)
+
+add_library(ocudu_metrics_app_helpers STATIC ${SOURCES})
+target_include_directories(ocudu_metrics_app_helpers PRIVATE ${CMAKE_SOURCE_DIR})
